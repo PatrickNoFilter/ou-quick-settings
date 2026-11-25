@@ -24,7 +24,8 @@ Right-click any tile for its detail menu:
 Right-click the tray icon for **Open panel** / a **Theme** submenu /
 **Quit**. Theme defaults to **Follow OU Setting** (the day/night switch in
 OU Setting / XFCE); you can force **Dark** or **Light** there.
-`Esc` or the ✕ button closes the panel. Clicking the tray icon again toggles it.
+`Esc`, the ✕ button, or clicking anywhere outside the panel closes it.
+Clicking the tray icon again toggles it.
 
 State refreshes every 3 seconds and immediately after each action.
 

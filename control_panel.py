@@ -2,6 +2,7 @@
 """OU OS Quick Settings - Android-style tray control panel."""
 
 import gi
+import cairo
 import os
 import re
 import shlex
@@ -408,6 +409,11 @@ class ControlPanel:
         self.window.connect("key-press-event", self._on_key)
         self.window.get_style_context().add_class("panel-window")
 
+        # Transparent fullscreen window shown only while the panel is open.
+        # It sits behind the panel and catches any click outside of it, so the
+        # panel behaves like a menu: click away to dismiss.
+        self._click_catcher = None
+
         self.theme_override = None  # None = follow OU Setting's day/night mode
         self._is_dark = None
         self._css_opacity = None
@@ -447,7 +453,7 @@ class ControlPanel:
         close = Gtk.Button(label="✕")
         close.get_style_context().add_class("close-button")
         close.set_relief(Gtk.ReliefStyle.NONE)
-        close.connect("clicked", lambda *_: self.window.hide())
+        close.connect("clicked", lambda *_: self._hide_panel())
         header.pack_start(title, False, False, 0)
         header.pack_start(clockbox, True, True, 0)
         header.pack_start(close, False, False, 0)
@@ -536,24 +542,86 @@ class ControlPanel:
         self.theme_override = choice
         self._apply_theme()
 
-    def _on_delete(self, _window, _event):
+    def _get_click_catcher(self):
+        """Fullscreen transparent click-catcher, created once and reused."""
+        if self._click_catcher is None:
+            win = Gtk.Window(type=Gtk.WindowType.POPUP)
+            win.set_decorated(False)
+            win.set_app_paintable(True)
+            win.set_accept_focus(False)
+            win.set_focus_on_map(False)
+            win.set_skip_taskbar_hint(True)
+            win.set_skip_pager_hint(True)
+            win.set_type_hint(Gdk.WindowTypeHint.POPUP_MENU)
+            screen = Gdk.Screen.get_default()
+            visual = screen.get_rgba_visual()
+            if visual:
+                win.set_visual(visual)
+            win.set_default_size(screen.get_width(), screen.get_height())
+            win.move(0, 0)
+            # Draw nothing at all: with an RGBA visual the window is invisible.
+            win.connect("draw", lambda *_: True)
+            win.connect("button-press-event", self._on_outside_click)
+            self._click_catcher = win
+        return self._click_catcher
+
+    def _update_catcher_input_shape(self):
+        """Punch the panel's rectangle out of the catcher's input area.
+
+        The catcher stays above every other window, so a click anywhere else
+        dismisses the panel; the hole lets clicks through to the panel itself.
+        """
+        if self._click_catcher is None:
+            return
+        win = self._click_catcher.get_window()
+        if win is None:
+            return
+        screen = Gdk.Screen.get_default()
+        area = cairo.Region(cairo.RectangleInt(
+            0, 0, screen.get_width(), screen.get_height()))
+        x, y = self.window.get_position()
+        width, height = self.window.get_size()
+        area.subtract(cairo.Region(cairo.RectangleInt(x, y, width, height)))
+        win.input_shape_combine_region(area, 0, 0)
+
+    def _on_outside_click(self, _win, _event):
+        self._hide_panel()
+        return True  # consume the click; do not pass it to the app underneath
+
+    def _hide_panel(self):
         self.window.hide()
+        if self._click_catcher is not None:
+            self._click_catcher.hide()
+
+    def _on_delete(self, _window, _event):
+        self._hide_panel()
         return True
 
     def _on_key(self, _window, event):
         if event.keyval == Gdk.KEY_Escape:
-            self.window.hide()
+            self._hide_panel()
             return True
         return False
 
     def _on_tray(self, *_args):
         if self.window.get_visible():
-            self.window.hide()
+            self._hide_panel()
         else:
             self.refresh()
+            self._get_click_catcher().show_all()
             self.window.show_all()
             self._place()
             self.window.present()
+            # Keep the real panel (including its WM frame) above the catcher.
+            try:
+                gdkwin = self.window.get_window()
+                parent = gdkwin.get_parent()
+                if parent:
+                    parent.raise_()
+                gdkwin.raise_()
+            except Exception:
+                pass
+            self._update_catcher_input_shape()
 
     def _place(self):
         screen = Gdk.Screen.get_default()
