@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=OU Quick Settings
+GenericName=Quick Settings
+Comment=Android-style tray panel for LAN, Wi-Fi, Bluetooth and Sound
+Exec=/home/desktop/ou-control-panel/launch.sh
+Icon=preferences-system-symbolic
+Terminal=false
+NoDisplay=false
+Categories=Utility;Settings;
