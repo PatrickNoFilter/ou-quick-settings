@@ -41,6 +41,12 @@ The popup background opacity is controlled from **OU Setting > Opacity >
 Quick settings opacity**. The value is stored at `/quick-settings/opacity` on
 the `xfce4-panel` xfconf channel and is applied automatically without a restart.
 
+## Installed location in OU OS
+
+In the OU OS live ISOs the application is installed at
+`/opt/ou-control-panel/` and the launcher in this directory points to
+`/opt/ou-control-panel/launch.sh`.
+
 ## Run
 
 ```sh
