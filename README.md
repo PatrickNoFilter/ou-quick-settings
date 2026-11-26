@@ -1,5 +1,7 @@
 # OU Quick Settings
 
+**Version:** 0.0.1
+
 Android-style quick settings panel that lives in the XFCE system tray on OU OS.
 
 ## What it does
@@ -27,6 +29,9 @@ Right-click the tray icon for **Open panel** / a **Theme** submenu /
 OU Setting / XFCE); you can force **Dark** or **Light** there.
 `Esc`, the ✕ button, or clicking anywhere outside the panel closes it.
 Clicking the tray icon again toggles it.
+
+Left-click the clock or date to show/hide a month calendar above the tiles.
+Click it again to close; `Esc` closes the calendar first, then the panel.
 
 State refreshes every 3 seconds and immediately after each action.
 

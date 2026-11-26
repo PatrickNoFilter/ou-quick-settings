@@ -284,6 +284,8 @@ scale slider {
     background-color: __slider_bg__; border-radius: 8px;
     min-width: 16px; min-height: 16px; margin: -5px;
 }
+calendar { background-color: transparent; color: __text__; }
+calendar:selected { background-color: __accent__; color: #ffffff; }
 """
 
 
@@ -424,6 +426,10 @@ class ControlPanel:
         # panel behaves like a menu: click away to dismiss.
         self._click_catcher = None
 
+        # Month calendar shown inside the panel above the tiles.
+        self.calendar_box = None
+        self.gtk_calendar = None
+
         self.theme_override = None  # None = follow OU Setting's day/night mode
         self._is_dark = None
         self._css_opacity = None
@@ -458,8 +464,15 @@ class ControlPanel:
         self.date = Gtk.Label(label="")
         self.date.get_style_context().add_class("date-label")
         self.date.set_halign(Gtk.Align.END)
-        clockbox.pack_start(self.clock, False, False, 0)
-        clockbox.pack_start(self.date, False, False, 0)
+        clock_event = Gtk.EventBox()
+        clock_event.add(self.clock)
+        date_event = Gtk.EventBox()
+        date_event.add(self.date)
+        for header_widget in (clock_event, date_event):
+            header_widget.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+            header_widget.connect("button-press-event", self._on_header_click)
+        clockbox.pack_start(clock_event, False, False, 0)
+        clockbox.pack_start(date_event, False, False, 0)
         close = Gtk.Button(label="✕")
         close.get_style_context().add_class("close-button")
         close.set_relief(Gtk.ReliefStyle.NONE)
@@ -468,6 +481,16 @@ class ControlPanel:
         header.pack_start(clockbox, True, True, 0)
         header.pack_start(close, False, False, 0)
         root.pack_start(header, False, False, 0)
+
+        # Hidden until the clock/date area is left-clicked.
+        self.calendar_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.calendar_box.set_no_show_all(True)
+        self.gtk_calendar = Gtk.Calendar()
+        self.gtk_calendar.set_display_options(
+            Gtk.CalendarDisplayOptions.SHOW_DAY_NAMES |
+            Gtk.CalendarDisplayOptions.SHOW_HEADING)
+        self.calendar_box.pack_start(self.gtk_calendar, False, False, 0)
+        root.pack_start(self.calendar_box, False, False, 0)
 
         grid = Gtk.Grid(column_spacing=10, row_spacing=10)
         grid.set_column_homogeneous(True)
@@ -611,11 +634,49 @@ class ControlPanel:
 
         menu.connect("deactivate", restore)
 
+    def _on_header_click(self, _widget, event):
+        """Left-clicking the clock or date toggles the month calendar."""
+        if event.button == Gdk.BUTTON_PRIMARY:
+            self._toggle_calendar()
+            return True
+        return False
+
+    def _toggle_calendar(self):
+        show = not self.calendar_box.get_visible()
+        if show:
+            now = datetime.now()
+            self.gtk_calendar.select_month(now.month - 1, now.year)
+            self.gtk_calendar.select_day(now.day)
+            self.gtk_calendar.mark_day(now.day)
+            self.calendar_box.show()
+            self.gtk_calendar.show()
+        else:
+            self.calendar_box.hide()
+        # GTK does not shrink a window on its own after a child is hidden.
+        GLib.idle_add(self._fit_panel)
+
+    def _fit_panel(self):
+        """Resize to the current content and keep the click-away hole in sync."""
+        try:
+            _minimum, natural = self.window.get_preferred_size()
+            if natural and natural.width > 0 and natural.height > 0:
+                self.window.resize(natural.width, natural.height)
+        except Exception:
+            pass
+        self._update_catcher_input_shape()
+        screen = Gdk.Screen.get_default()
+        x, y = self.window.get_position()
+        _width, height = self.window.get_size()
+        if y + height > screen.get_height() - 4:
+            self.window.move(x, max(4, screen.get_height() - height - 4))
+
     def _on_outside_click(self, _win, _event):
         self._hide_panel()
         return True  # consume the click; do not pass it to the app underneath
 
     def _hide_panel(self):
+        if self.calendar_box is not None:
+            self.calendar_box.hide()
         self.window.hide()
         if self._click_catcher is not None:
             self._click_catcher.hide()
@@ -626,7 +687,10 @@ class ControlPanel:
 
     def _on_key(self, _window, event):
         if event.keyval == Gdk.KEY_Escape:
-            self._hide_panel()
+            if self.calendar_box.get_visible():
+                self._toggle_calendar()
+            else:
+                self._hide_panel()
             return True
         return False
 
