@@ -7,6 +7,7 @@ import os
 import re
 import shlex
 import subprocess
+import threading
 from datetime import datetime
 
 gi.require_version("Gtk", "3.0")
@@ -128,6 +129,15 @@ def set_bt(enabled):
                 "<%s>" % ("true" if enabled else "false")], timeout=3)
     if "error" in out.lower():
         sh("bluetoothctl power " + ("on" if enabled else "off"), timeout=3)
+
+
+def bt_scan_devices(seconds=10):
+    """Discover nearby devices; return (newly seen, all) as (mac, name) lists."""
+    before = {mac for mac, _name in bt_devices()}
+    sh("timeout %d bluetoothctl scan on" % seconds, timeout=seconds + 4)
+    devices = bt_devices()
+    new = [(mac, name) for mac, name in devices if mac not in before]
+    return new, devices
 
 
 def sound_muted():
@@ -565,16 +575,15 @@ class ControlPanel:
             self._click_catcher = win
         return self._click_catcher
 
-    def _update_catcher_input_shape(self):
-        """Punch the panel's rectangle out of the catcher's input area.
-
-        The catcher stays above every other window, so a click anywhere else
-        dismisses the panel; the hole lets clicks through to the panel itself.
-        """
+    def _set_catcher_input(self, active):
+        """Enable click-away, or let every click through while a menu is open."""
         if self._click_catcher is None:
             return
         win = self._click_catcher.get_window()
         if win is None:
+            return
+        if not active:
+            win.input_shape_combine_region(cairo.Region(), 0, 0)
             return
         screen = Gdk.Screen.get_default()
         area = cairo.Region(cairo.RectangleInt(
@@ -583,6 +592,24 @@ class ControlPanel:
         width, height = self.window.get_size()
         area.subtract(cairo.Region(cairo.RectangleInt(x, y, width, height)))
         win.input_shape_combine_region(area, 0, 0)
+
+    def _update_catcher_input_shape(self):
+        """Punch the panel's rectangle out of the catcher's input area.
+
+        The catcher stays above every other window, so a click anywhere else
+        dismisses the panel; the hole lets clicks through to the panel itself.
+        """
+        self._set_catcher_input(True)
+
+    def _suspend_catcher_for_menu(self, menu):
+        """Menus pop outside the panel hole; give them all pointer events."""
+        self._set_catcher_input(False)
+
+        def restore(*_args):
+            if self.window.get_visible():
+                self._set_catcher_input(True)
+
+        menu.connect("deactivate", restore)
 
     def _on_outside_click(self, _win, _event):
         self._hide_panel()
@@ -652,6 +679,7 @@ class ControlPanel:
 
     def _on_tray_menu(self, _icon, button, time):
         menu = Gtk.Menu()
+        self._suspend_catcher_for_menu(menu)
         item = Gtk.MenuItem(label="Open panel")
         item.connect("activate", lambda *_: self._on_tray())
         menu.append(item)
@@ -671,6 +699,60 @@ class ControlPanel:
         menu.append(quit_item)
         menu.show_all()
         menu.popup(None, None, self.tray.position_menu, self.tray, button, time)
+
+    def _on_bt_menu_key(self, menu, event, search_item):
+        """Tab activates Search Devices in the Bluetooth menu."""
+        if event.keyval == Gdk.KEY_Tab:
+            search_item.activate()
+            return True
+        return False
+
+    def _start_bt_scan(self, tile):
+        """Run discovery off the UI thread, then show the found devices."""
+        self._bt_scanning = True
+        self.bluetooth.subtitle.set_label("Scanning…")
+
+        def worker():
+            try:
+                new, devices = bt_scan_devices(10)
+            except Exception:
+                new, devices = [], []
+            GLib.idle_add(self._show_bt_scan_results, tile, new, devices)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _show_bt_scan_results(self, tile, new, devices):
+        self._bt_scanning = False
+        menu = Gtk.Menu()
+        if not bt_powered():
+            self._add_item(menu, "Bluetooth is off", sensitive=False)
+        found = new or devices
+        if found:
+            self._add_item(menu, "Found %d device(s)" % len(found), sensitive=False)
+            for mac, name in found:
+                item = self._add_item(menu, name or mac)
+                submenu = Gtk.Menu()
+                self._add_item(submenu, "Connect", lambda m=mac: bt_action("connect", m))
+                self._add_item(submenu, "Pair", lambda m=mac: bt_action("pair", m))
+                self._add_item(submenu, "Disconnect",
+                               lambda m=mac: bt_action("disconnect", m))
+                item.set_submenu(submenu)
+        else:
+            self._add_item(menu, "No nearby devices found", sensitive=False)
+        menu.append(Gtk.SeparatorMenuItem())
+        again = self._add_item(menu, "Search Again",
+                               lambda t=tile: self._start_bt_scan(t))
+        menu.connect("key-press-event", self._on_bt_menu_key, again)
+        self._suspend_catcher_for_menu(menu)
+        menu.show_all()
+        menu.attach_to_widget(tile)
+        event = getattr(self, "_bt_event", None)
+        try:
+            menu.popup_at_widget(tile, Gdk.Gravity.SOUTH_WEST,
+                                 Gdk.Gravity.NORTH_WEST, event)
+        except Exception:
+            menu.popup(None, None, None, None, 0, Gtk.get_current_event_time())
+        self.refresh()
 
     def _add_item(self, menu, label, action=None, sensitive=True):
         item = Gtk.MenuItem(label=label)
@@ -702,11 +784,19 @@ class ControlPanel:
                                lambda s=ssid: wifi_connect(s))
 
         elif key == "bluetooth":
+            try:
+                self._bt_event = event.copy()
+            except Exception:
+                self._bt_event = event
             powered = bt_powered()
             self._add_item(menu, "Bluetooth — " + ("On" if powered else "Off"),
                            sensitive=False)
             self._add_item(menu, "Turn Bluetooth " + ("off" if powered else "on"),
                            lambda s=powered: set_bt(not s))
+            search_item = self._add_item(
+                menu, "Search Devices",
+                lambda t=tile: self._start_bt_scan(t))
+            menu.connect("key-press-event", self._on_bt_menu_key, search_item)
             menu.append(Gtk.SeparatorMenuItem())
             self._add_item(menu, "Devices", sensitive=False)
             devices = bt_devices()
@@ -762,6 +852,7 @@ class ControlPanel:
                 self._add_item(menu, mark + description,
                                lambda n=name: set_default_sink(n))
 
+        self._suspend_catcher_for_menu(menu)
         menu.show_all()
         menu.attach_to_widget(tile)
         try:
@@ -789,7 +880,8 @@ class ControlPanel:
         self.wifi.set_state(wifi_on, wifi_detail() if wifi_on else "Off")
 
         bt_on = bt_powered()
-        self.bluetooth.set_state(bt_on, bt_detail(bt_on))
+        if not getattr(self, "_bt_scanning", False):
+            self.bluetooth.set_state(bt_on, bt_detail(bt_on))
 
         dev = eth_device()
         lan_on = eth_connected(dev)

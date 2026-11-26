@@ -17,7 +17,8 @@ with a live clock (HH:MM:SS) + date, four tiles and a volume slider:
 Right-click any tile for its detail menu:
 
 - **Wi-Fi** – turn the radio on/off, pick a network from the scanned list to connect
-- **Bluetooth** – power on/off, per-device Connect / Disconnect submenu
+- **Bluetooth** – power on/off, **Search Devices** to scan for nearby devices
+  (with Connect / Pair / Disconnect actions), per-device Connect / Disconnect submenu
 - **LAN** – connect/disconnect Ethernet, activate/deactivate saved connections
 - **Sound** – mute/unmute, volume presets, choose the default output sink
 
