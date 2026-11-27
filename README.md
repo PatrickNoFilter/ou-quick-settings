@@ -1,6 +1,6 @@
 # OU Quick Settings
 
-**Version:** 0.0.1
+**Version:** 0.0.2
 
 Android-style quick settings panel that lives in the XFCE system tray on OU OS.
 
