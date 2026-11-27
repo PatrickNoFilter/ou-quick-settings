@@ -116,9 +116,13 @@ def bt_powered():
 def bt_detail(powered=None):
     if powered is None:
         powered = bt_powered()
+    # A powered-off adapter (or one with no driver at all) must never report
+    # cached/stale "connected" devices from bluez.
+    if not powered:
+        return "Off"
     lines = [l for l in sh("bluetoothctl devices Connected", timeout=3).splitlines()
              if l.strip()]
-    return "%d connected" % len(lines) if lines else ("On" if powered else "Off")
+    return "%d connected" % len(lines) if lines else "On"
 
 
 def set_bt(enabled):
