@@ -1,7 +1,7 @@
 #!/bin/sh
 # Build an architecture-independent Debian package for OU Quick Settings.
 set -eu
-VERSION="${1:-0.0.2}"
+VERSION="${1:-0.1.0}"
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 OUT="$ROOT/dist"
 STAGE="$ROOT/build/ou-quick-settings_${VERSION}_all"
