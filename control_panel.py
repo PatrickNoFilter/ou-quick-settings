@@ -423,6 +423,7 @@ class ControlPanel:
             self.window.set_visual(visual)
         self.window.connect("delete-event", self._on_delete)
         self.window.connect("key-press-event", self._on_key)
+        self.window.connect("configure-event", self._on_panel_configure)
         self.window.get_style_context().add_class("panel-window")
 
         # Transparent fullscreen window shown only while the panel is open.
@@ -615,10 +616,21 @@ class ControlPanel:
         screen = Gdk.Screen.get_default()
         area = cairo.Region(cairo.RectangleInt(
             0, 0, screen.get_width(), screen.get_height()))
-        x, y = self.window.get_position()
-        width, height = self.window.get_size()
+        gdkwin = self.window.get_window()
+        if gdkwin is not None:
+            _ok, x, y = gdkwin.get_origin()
+            width, height = gdkwin.get_width(), gdkwin.get_height()
+        else:
+            x, y = self.window.get_position()
+            width, height = self.window.get_size()
         area.subtract(cairo.Region(cairo.RectangleInt(x, y, width, height)))
         win.input_shape_combine_region(area, 0, 0)
+
+    def _on_panel_configure(self, _win, _event):
+        """Keep the click-away hole matched to the panel's mapped geometry."""
+        if self.window.get_visible() and self._click_catcher is not None:
+            self._update_catcher_input_shape()
+        return False
 
     def _update_catcher_input_shape(self):
         """Punch the panel's rectangle out of the catcher's input area.
@@ -674,9 +686,27 @@ class ControlPanel:
         if y + height > screen.get_height() - 4:
             self.window.move(x, max(4, screen.get_height() - height - 4))
 
-    def _on_outside_click(self, _win, _event):
+    def _on_outside_click(self, _win, event):
+        # If the hole was briefly stale during the first map, do not dismiss
+        # the panel for a click that actually landed inside it.
+        try:
+            x, y, width, height = self._panel_geometry()
+            ex, ey = event.x_root, event.y_root
+            if x <= ex <= x + width and y <= ey <= y + height:
+                return False
+        except Exception:
+            pass
         self._hide_panel()
         return True  # consume the click; do not pass it to the app underneath
+
+    def _panel_geometry(self):
+        gdkwin = self.window.get_window()
+        if gdkwin is not None:
+            _ok, x, y = gdkwin.get_origin()
+            return x, y, gdkwin.get_width(), gdkwin.get_height()
+        x, y = self.window.get_position()
+        width, height = self.window.get_size()
+        return x, y, width, height
 
     def _hide_panel(self):
         if self.calendar_box is not None:
@@ -717,6 +747,9 @@ class ControlPanel:
             except Exception:
                 pass
             self._update_catcher_input_shape()
+            # The first map can finish after show_all(); refresh once it has.
+            GLib.idle_add(self._update_catcher_input_shape)
+            GLib.timeout_add(200, self._update_catcher_input_shape)
 
     def _place(self):
         screen = Gdk.Screen.get_default()
